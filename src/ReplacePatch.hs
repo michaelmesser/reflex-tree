@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, LambdaCase, OverloadedLists, TypeFamilies, GADTs, FlexibleContexts, UndecidableInstances, StandaloneDeriving #-}
+{-# LANGUAGE ScopedTypeVariables, LambdaCase, OverloadedLists, TypeFamilies, GADTs, FlexibleContexts, UndecidableInstances, StandaloneDeriving, TupleSections #-}
 module ReplacePatch where
 
 import Reflex
@@ -20,24 +20,21 @@ instance Patch p => Patch (ReplacePatch p) where
         ReplacePatch_New n -> Just n
         ReplacePatch_Patch p -> apply p old
 
-getIncremental :: (MonadHold t m, Reflex t, Patch p) => PatchTarget p -> Event t (ReplacePatch p) -> m (Incremental t p)
-getIncremental value events = do
-    x <- events <&> (\case (ReplacePatch_Patch patch) -> Just patch; _ -> Nothing) & stopOnNothing
-    holdIncremental value x
+class Patch p => Diffable p where
+    diff :: PatchTarget p -> PatchTarget p -> Maybe p
 
-replacePatchToDyn :: (MonadHold t m, Reflex t, Patch a) => Incremental t (ReplacePatch a) -> m (Dynamic t (Incremental t a))
-replacePatchToDyn i = do
-    initial <- sample $ currentIncremental i
-    let events = updatedIncremental i
-    newInitial <- getIncremental initial events
-    let newEvents = events & push (\case
-            ReplacePatch_New value -> Just <$> do
-                e <- tailE events
-                getIncremental value e
-            ReplacePatch_Patch _ -> return Nothing)
-    holdDyn newInitial newEvents
+w :: (Reflex t, MonadHold t m, Diffable p) => PatchTarget p -> Event t (ReplacePatch p) -> m (PatchTarget p, Event t p)
+w initial events = do
+    incremental <- holdIncremental initial events
+    return (initial, push (\case
+        ReplacePatch_New new -> do
+            old <- sample $ currentIncremental incremental
+            return $ diff old new
+        ReplacePatch_Patch patch -> return $ Just patch
+        ) events)
+    
 
---switchPromptly or switchPromptOnly to go the other way
-
-stopOnNothing :: (Reflex t, MonadHold t m) => Event t (Maybe a) -> m (Event t a)
-stopOnNothing e = switchPromptly (fmapMaybe id e) (never <$ ffilter isNothing e)
+v :: (Patch p, MonadHold t m, Reflex t) => (PatchTarget p, Event t p) -> Event t (PatchTarget p, Event t p) -> m (PatchTarget p, Event t (ReplacePatch p))
+v initial events = do
+    x <- switchPromptly (snd initial) (snd <$> events) -- switch or switchPromptly
+    return (fst initial, leftmost [ReplacePatch_New <$> (fst <$> events), ReplacePatch_Patch <$> x]) -- leftmost or do I have to worry about simultanous events

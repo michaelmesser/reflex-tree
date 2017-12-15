@@ -52,6 +52,9 @@ instance Patch SectionedItemsPatch where
             , (\change -> subsections %~ (\x -> fromMaybe x $ apply change x)) . runIdentity <$> DM.lookup SectionedItems_SubsectionsTag mods
             ]
 
+instance (Ord k, Eq v) => Diffable (PatchMap k v) where
+    diff old new = let x = diffMap old new in if M.null x then Nothing else Just (PatchMap x)
+
 data SectionedItemsDynamic t = SectionedItemsDynamic
     { _sectionedItemsDynamicName :: Dynamic t Text
     , _sectionedItemsDynamicItems :: Dynamic t (Incremental t (PatchMap MapKey Text))
@@ -107,10 +110,10 @@ sectionItemsWidget initial events = elAttr "div" [("style", "border: 1px solid b
                   ) addItemEvent -- Find way to keep track of the next new id
                 ]
             , _sectionedItemsEventSubsections = leftmost
-                [ switch . current . fmap (fmap (DeepPatchMap . fmap (\case Just x -> DeepPatchMapRowChange_Patch x; Nothing -> DeepPatchMapRowChange_Delete)) . mergeMap) $ subsectionsEvents
+                [ switch . current . fmap (fmap (DeepPatchMap . fmap (fmap ReplacePatch_Patch)) . mergeMap) $ subsectionsEvents
                 , pushAlways (\x -> do
                     cMap <- sample $ currentIncremental subsectionsIncremental
-                    return . DeepPatchMap . M.singleton (maybe 0 (succ . fst . fst) . M.maxViewWithKey $ cMap) . DeepPatchMapRowChange_New $ SectionedItems { _sectionedItemsName = x, _sectionedItemsItems = [], _sectionedItemsSubsections = []}
+                    return . DeepPatchMap . M.singleton (maybe 0 (succ . fst . fst) . M.maxViewWithKey $ cMap) . Just . ReplacePatch_New $ SectionedItems { _sectionedItemsName = x, _sectionedItemsItems = [], _sectionedItemsSubsections = []}
                   ) addSectionEvent
                 ]
             }
