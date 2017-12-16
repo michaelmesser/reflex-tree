@@ -15,6 +15,7 @@ import Data.GADT.Show.TH
 import Data.Maybe
 import Control.Monad
 import Control.Monad.IO.Class
+import Util
 
 type MapKey = Int
 
@@ -53,7 +54,7 @@ instance Patch SectionedItemsPatch where
             ]
 
 instance (Ord k, Eq v) => Diffable (PatchMap k v) where
-    diff old new = let x = diffMap old new in if M.null x then Nothing else Just (PatchMap x)
+    diff old new = fmap PatchMap . mNullToNothing $ diffMap old new
 
 data SectionedItemsDynamic t = SectionedItemsDynamic
     { _sectionedItemsDynamicName :: Dynamic t Text

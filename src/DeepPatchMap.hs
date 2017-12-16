@@ -24,20 +24,33 @@ instance (Ord k, Patch p) => Patch (DeepPatchMap k p) where
               insertions = M.mapMaybeWithKey (const $ \case (Just (ReplacePatch_New a)) -> Just a; _ -> Nothing) p
               deletions = M.mapMaybeWithKey (const $ \case Nothing -> Just (); _ -> Nothing) p
               modifications = M.mapMaybeWithKey (const $ \case (Just (ReplacePatch_Patch a)) -> Just a; _ -> Nothing) p
-
 {-
-diffMap :: (Ord k, Eq v) => Map k v -> Map k v -> Map k (Maybe v)
-diffMap olds news = flip Map.mapMaybe (align olds news) $ \case
-  This _ -> Just Nothing
-  These old new
-    | old == new -> Nothing
-    | otherwise -> Just $ Just new
-  That new -> Just $ Just new
+    apply (DeepPatchMap p) old = Just . flip M.mapMaybe (align p old) $ \case
+        This x -> case x of
+            Just y -> case y of
+                ReplacePatch_New z -> Just z
+                ReplacePatch_Patch z -> Nothing -- Can't patch a value that does not exist yet
+            Nothing -> Nothing
+        These x y -> case x of
+            Just z -> case z of
+                ReplacePatch_New w -> Just w
+                ReplacePatch_Patch w -> apply x y
+            Nothing -> Nothing
+        That y -> Just y
+-}
+{-
+              apply (DeepPatchMap p) old = Just $! s3
+                  where s1 = old `M.difference` deletions
+                        s2 = insertions `M.union` s1
+                        s3 = M.differenceWith (flip apply) s2 modifications
+                        insertions = M.mapMaybeWithKey (const $ \case (Just (ReplacePatch_New a)) -> Just a; _ -> Nothing) p
+                        deletions = M.mapMaybeWithKey (const $ \case Nothing -> Just (); _ -> Nothing) p
+                        modifications = M.mapMaybeWithKey (const $ \case (Just (ReplacePatch_Patch a)) -> Just a; _ -> Nothing) p
 -}
 
 instance (Ord k, Diffable p) => Diffable (DeepPatchMap k p) where
     diff olds news = fmap DeepPatchMap . (\x -> if M.null x then Nothing else Just x) . flip M.mapMaybe (align olds news) $ \case
-        This _ -> Nothing
+        This _ -> Just Nothing
         These old new -> Just . ReplacePatch_Patch <$> diff old new
         That new -> Just . Just $ ReplacePatch_New new
 
