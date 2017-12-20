@@ -23,8 +23,8 @@ instance Patch p => Patch (ReplacePatch p) where
 class Patch p => Diffable p where
     diff :: PatchTarget p -> PatchTarget p -> Maybe p
 
-w :: (Reflex t, MonadHold t m, Diffable p) => PatchTarget p -> Event t (ReplacePatch p) -> m (PatchTarget p, Event t p)
-w initial events = do
+diffReplacePatch :: (Reflex t, MonadHold t m, Diffable p) => PatchTarget p -> Event t (ReplacePatch p) -> m (PatchTarget p, Event t p)
+diffReplacePatch initial events = do
     incremental <- holdIncremental initial events
     return (initial, push (\case
         ReplacePatch_New new -> do
@@ -33,8 +33,7 @@ w initial events = do
         ReplacePatch_Patch patch -> return $ Just patch
         ) events)
     
-
-v :: (Patch p, MonadHold t m, Reflex t) => (PatchTarget p, Event t p) -> Event t (PatchTarget p, Event t p) -> m (PatchTarget p, Event t (ReplacePatch p))
-v initial events = do
+flattenToReplacePatch :: (Patch p, MonadHold t m, Reflex t) => (PatchTarget p, Event t p) -> Event t (PatchTarget p, Event t p) -> m (PatchTarget p, Event t (ReplacePatch p))
+flattenToReplacePatch initial events = do
     x <- switchPromptly (snd initial) (snd <$> events) -- switch or switchPromptly
     return (fst initial, leftmost [ReplacePatch_New <$> (fst <$> events), ReplacePatch_Patch <$> x]) -- leftmost or do I have to worry about simultanous events

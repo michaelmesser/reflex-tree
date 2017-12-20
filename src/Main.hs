@@ -53,6 +53,13 @@ instance Patch SectionedItemsPatch where
             , (\change -> subsections %~ (\x -> fromMaybe x $ apply change x)) . runIdentity <$> DM.lookup SectionedItems_SubsectionsTag mods
             ]
 
+instance Diffable SectionedItemsPatch where
+    diff old new = fmap SectionedItemsPatch . dmNullToNothing . DM.fromList . catMaybes $
+        [ (SectionedItems_NameTag :=>) . Identity <$> if old^.name == new^.name then Nothing else Just (new^.name)
+        , (SectionedItems_ItemsTag :=>) . Identity <$> diff (old^.items) (new^.items)
+        , (SectionedItems_SubsectionsTag :=>) . Identity <$> diff (old^.subsections) (new^.subsections)
+        ]
+
 instance (Ord k, Eq v) => Diffable (PatchMap k v) where
     diff old new = fmap PatchMap . mNullToNothing $ diffMap old new
 
@@ -90,16 +97,19 @@ fanSectionedItemsEvents e = SectionedItemsEvent
 sectionItemsWidget :: MonadWidget t m => SectionedItems -> Event t SectionedItemsPatch -> m (Event t (Maybe SectionedItemsPatch))
 sectionItemsWidget initial events = elAttr "div" [("style", "border: 1px solid black; margin: 10px")] $ do
     let fe = fanSectionedItemsEvents events
-    nameEvents <- nameWidget (initial^.name) (fe^.name)
-    itemsEvents <- listWithKeyShallowDiff (initial^.items) (unPatchMap <$> (fe^.items)) (const itemWidget)
-    itemsIncremental <- holdIncremental (initial^.items) (fe^.items) -- Maybe find be way to make the next id
-    addItemEvent <- itemAdderWidget
     (isi, esi) <- convert (initial^.subsections) (fe^.subsections)
-    subsectionsEvents <- listWithKeyShallowDiff isi (unPatchMap <$> esi) (\k i e ->
-        (switch . current) <$> widgetHold (uncurry sectionItemsWidget i) (fmap (uncurry sectionItemsWidget) e) -- Do diffing or something like that
-        )
+    itemsIncremental <- holdIncremental (initial^.items) (fe^.items) -- Maybe find be way to make the next id
     subsectionsIncremental <- holdIncremental (initial^.subsections) (fe^.subsections)
-    addSectionEvent <- sectionAdderWidget
+    nameEvents <- nameWidget (initial^.name) (fe^.name)
+    (itemsEvents, addItemEvent, subsectionsEvents, addSectionEvent) <- elAttr "div" [("style", "margin-left: 1cm")] $ do
+        itemsEvents <- listWithKeyShallowDiff (initial^.items) (unPatchMap <$> (fe^.items)) (const itemWidget)
+        addItemEvent <- itemAdderWidget
+        subsectionsEvents <- listWithKeyShallowDiff isi (unPatchMap <$> esi) (\k i e -> do
+            n <- uncurry diffReplacePatch =<< flattenToReplacePatch i e
+            uncurry sectionItemsWidget n
+            )
+        addSectionEvent <- sectionAdderWidget
+        return (itemsEvents, addItemEvent, subsectionsEvents, addSectionEvent)
     return $ leftmost
         [ Just <$> mergeSectionedItemsEvents SectionedItemsEvent
             { _sectionedItemsEventName = nameEvents & fmapMaybe id
@@ -108,7 +118,7 @@ sectionItemsWidget initial events = elAttr "div" [("style", "border: 1px solid b
                 , pushAlways (\x -> do
                     cMap <- sample $ currentIncremental itemsIncremental
                     return . PatchMap . M.singleton (maybe 0 (succ . fst . fst) . M.maxViewWithKey $ cMap) . Just $ x
-                  ) addItemEvent -- Find way to keep track of the next new id
+                  ) addItemEvent
                 ]
             , _sectionedItemsEventSubsections = leftmost
                 [ switch . current . fmap (fmap (DeepPatchMap . fmap (fmap ReplacePatch_Patch)) . mergeMap) $ subsectionsEvents
@@ -123,7 +133,7 @@ sectionItemsWidget initial events = elAttr "div" [("style", "border: 1px solid b
 
 nameWidget :: MonadWidget t m => Text -> Event t Text -> m (Event t (Maybe Text))
 nameWidget initial events = el "div" $ do
-    updates <- editableTextWidget initial events
+    updates <- elAttr "span" [("style", "font-weight: bold")] $ editableTextWidget initial events
     delete <- button "Delete Section"
     return $ leftmost [Nothing <$ delete, Just <$> updates]
 
@@ -155,16 +165,25 @@ sectionAdderWidget = el "div" $ do
 initial :: SectionedItems
 initial = SectionedItems
     { _sectionedItemsName = "Root 0"
-    , _sectionedItemsItems = [(0, "Item 0"),(1, "Item 1")]
+    , _sectionedItemsItems =
+        [ (0, "Item 0")
+        , (1, "Item 1")
+        ]
     , _sectionedItemsSubsections =
         [ (0, SectionedItems
             { _sectionedItemsName = "Root 1"
-            , _sectionedItemsItems = [(0, "Item 2"),(1, "Item 3")]
+            , _sectionedItemsItems =
+                [ (0, "Item 2")
+                , (1, "Item 3")
+                ]
             , _sectionedItemsSubsections = []
             })
         , (1, SectionedItems
-            { _sectionedItemsName = "Root2"
-            , _sectionedItemsItems = [(0, "Item 4"),(1, "Item 5")]
+            { _sectionedItemsName = "Root 2"
+            , _sectionedItemsItems =
+                [ (0, "Item 4")
+                , (1, "Item 5")
+                ]
             , _sectionedItemsSubsections = []
             })
         ]
