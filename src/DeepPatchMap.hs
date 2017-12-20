@@ -24,29 +24,6 @@ instance (Ord k, Patch p) => Patch (DeepPatchMap k p) where
               insertions = M.mapMaybeWithKey (const $ \case (Just (ReplacePatch_New a)) -> Just a; _ -> Nothing) p
               deletions = M.mapMaybeWithKey (const $ \case Nothing -> Just (); _ -> Nothing) p
               modifications = M.mapMaybeWithKey (const $ \case (Just (ReplacePatch_Patch a)) -> Just a; _ -> Nothing) p
-{-
-    apply (DeepPatchMap p) old = Just . flip M.mapMaybe (align p old) $ \case
-        This x -> case x of
-            Just y -> case y of
-                ReplacePatch_New z -> Just z
-                ReplacePatch_Patch z -> Nothing -- Can't patch a value that does not exist yet
-            Nothing -> Nothing
-        These x y -> case x of
-            Just z -> case z of
-                ReplacePatch_New w -> Just w
-                ReplacePatch_Patch w -> apply x y
-            Nothing -> Nothing
-        That y -> Just y
--}
-{-
-              apply (DeepPatchMap p) old = Just $! s3
-                  where s1 = old `M.difference` deletions
-                        s2 = insertions `M.union` s1
-                        s3 = M.differenceWith (flip apply) s2 modifications
-                        insertions = M.mapMaybeWithKey (const $ \case (Just (ReplacePatch_New a)) -> Just a; _ -> Nothing) p
-                        deletions = M.mapMaybeWithKey (const $ \case Nothing -> Just (); _ -> Nothing) p
-                        modifications = M.mapMaybeWithKey (const $ \case (Just (ReplacePatch_Patch a)) -> Just a; _ -> Nothing) p
--}
 
 instance (Ord k, Diffable p) => Diffable (DeepPatchMap k p) where
     diff olds news = fmap DeepPatchMap . (\x -> if M.null x then Nothing else Just x) . flip M.mapMaybe (align olds news) $ \case
@@ -54,8 +31,8 @@ instance (Ord k, Diffable p) => Diffable (DeepPatchMap k p) where
         These old new -> Just . ReplacePatch_Patch <$> diff old new
         That new -> Just . Just $ ReplacePatch_New new
 
-qw :: (Ord k, Patch p, MonadFix m, MonadHold t m, Reflex t) => Event t (DeepPatchMap k p) -> k -> Maybe (ReplacePatch p) -> Maybe (m (Maybe (PatchTarget p, Event t p)))
-qw events key = \case
+getEverythingForKey :: (Ord k, Patch p, MonadFix m, MonadHold t m, Reflex t) => Event t (DeepPatchMap k p) -> k -> Maybe (ReplacePatch p) -> Maybe (m (Maybe (PatchTarget p, Event t p)))
+getEverythingForKey events key = \case
     Just (ReplacePatch_New value) -> Just $ Just <$> do
         es <- tailE events
         (value,) <$> getUpdatesForKey key es
@@ -65,7 +42,7 @@ qw events key = \case
 convert :: (Ord k, Patch p, Reflex t, MonadHold t m) => Map k (PatchTarget p) -> Event t (DeepPatchMap k p) -> m (Map k (PatchTarget p, Event t p), Event t (PatchMap k (PatchTarget p, Event t p)))
 convert initial events = do
     newInitial <- sequence $ M.mapWithKey (\key value -> (value,) <$> getUpdatesForKey key events) initial
-    let newEvents = push (fmap (fmap PatchMap . (\m -> if M.null m then Nothing else Just m)) . sequence . M.mapMaybeWithKey (qw events) . unDeepPatchMap) events
+    let newEvents = push (fmap (fmap PatchMap . (\m -> if M.null m then Nothing else Just m)) . sequence . M.mapMaybeWithKey (getEverythingForKey events) . unDeepPatchMap) events
     return (newInitial, newEvents)
 
 getUpdatesForKey :: (MonadHold t m, Reflex t, Ord k) => k -> Event t (DeepPatchMap k p) -> m (Event t p) 

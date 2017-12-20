@@ -35,5 +35,5 @@ diffReplacePatch initial events = do
     
 flattenToReplacePatch :: (Patch p, MonadHold t m, Reflex t) => (PatchTarget p, Event t p) -> Event t (PatchTarget p, Event t p) -> m (PatchTarget p, Event t (ReplacePatch p))
 flattenToReplacePatch initial events = do
-    x <- switchPromptly (snd initial) (snd <$> events) -- switch or switchPromptly
-    return (fst initial, leftmost [ReplacePatch_New <$> (fst <$> events), ReplacePatch_Patch <$> x]) -- leftmost or do I have to worry about simultanous events
+    x <- switchPromptly (snd initial) (snd <$> events)
+    return (fst initial, leftmost [ReplacePatch_New <$> (fst <$> events), ReplacePatch_Patch <$> x])
